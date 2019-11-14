@@ -134,12 +134,54 @@ def memwrite(ser, path, addr):
 	
 	fd.close()
 
+def dumppage(ser):
+	serwrite(ser, b'dn\r')
+
+	serreadline(ser) # Skip command line
+
+	nand_page_info = serreadline(ser).decode('utf8').replace('-','').strip()
+	print(nand_page_info)
+
+	m = True
+	buf = b''
+	while m:
+		line = serreadline(ser).strip().decode('utf8')
+		m = lineregex.match(line)
+		if not m:
+			break
+		bytes = [binascii.unhexlify(x) for x in m.group(0)[10:].split(' ')[0:4]]
+		buf += b''.join(bytes)
+
+	cmd_status = ''
+	while not cmd_status:
+		tmp = serreadline(ser).decode('utf8').strip()
+		if tmp.startswith('*** command status'):
+			cmd_status = int(tmp.replace('*** command status = ',''))
+			if cmd_status != 1:
+				print('CMD returned: %i' % cmd_status)
+				return None
+
+	return buf
+
+
+def nanddump(ser, filepath):
+	wait_prompt(ser)
+	fd = open(filepath, "wb")
+
+	data = True
+	while data:
+		data = dumppage(ser)
+		fd.write(data)
+	
+	fd.close()
+
 def main():
 	optparser = OptionParser("usage: %prog [options]",version="%prog 0.1")
 	optparser.add_option("--block", dest="block", help="buffer block size", default="10240",metavar="block")
 	optparser.add_option("--serial", dest="serial", help="specify serial port", default="/dev/ttyUSB0", metavar="dev")
 	optparser.add_option("--read", dest="read", help="read mem to file", metavar="path")
-	optparser.add_option("--write", dest="write", help="write data to mem", metavar="write")
+	optparser.add_option("--write", dest="write", help="write data to mem", metavar="path")
+	optparser.add_option("--nanddump", dest="nanddump", help="Dump nand to file", metavar="path")
 	optparser.add_option("--addr", dest="addr",help="mem address", metavar="addr")
 	optparser.add_option("--size", dest="size",help="size to copy", metavar="bytes")
 	(options, args) = optparser.parse_args()
@@ -152,6 +194,8 @@ def main():
 		memread(ser, options.read, int(options.addr, 0), int(options.size, 0), int(options.block, 0))
 	elif options.write:
 		memwrite(ser, options.write, int(options.addr, 0))
+	elif options.nanddump:
+		nanddump(ser, options.nanddump)
 	return
 
 if __name__ == '__main__':
